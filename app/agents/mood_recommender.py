@@ -5,6 +5,7 @@ from typing import List
 import sys
 sys.path.append("D:/travel_assistant_ai/app")
 from langgraph_flow.state import TravelState
+from langgraph.graph import END
 import os
 
 #based on the location and destination, date and time we will get the flights
@@ -21,7 +22,10 @@ def Planner_Agent(state: TravelState) -> TravelState:
     """Planner Agent to recommend travel destinations based on mood."""
     # Initialize the Google Generative AI chat model
     system_prompt = SystemMessage(
-        content = "You are a travel planner agent. Recommend travel destinations based on the user's conversation"
+        content=(
+            "You are a travel planner agent. You can recommend travel destinations based on the user's conversation. "
+            "If the user asks for flight information, use the 'get_flights' tool to provide flight options."
+        )
     )
 
     if not state["messages"]:
@@ -33,38 +37,46 @@ def Planner_Agent(state: TravelState) -> TravelState:
         print(f"\n👤 USER: {user_input}")
         user_message = HumanMessage(content=user_input)
 
-    state["last_message"] = user_message
+    # state["last_message"] = user_message
     
     all_messages = [system_prompt] + list(state["messages"]) + [user_message]
 
     response = model.invoke(all_messages)
-    print(response.tool_calls)
-    if response.tool_calls:
-        tool_call = response.tool_calls[0]
-        # Find the tool by name
-        tool = next(t for t in tools if t.name == tool_call["name"])
-        tool_msg = tool.invoke(tool_call)
-        print(f"tool_msg is {tool_msg}")
-        # Append user message, model response, and tool message
-        state["messages"] = list(state["messages"]) + [user_message, response, tool_msg]
-    else:
-        # No tool call, just append user message and model response
-        state["messages"] = list(state["messages"]) + [user_message, response]
+    
+    print(f"🤖 BOT: {response.content}")
+
+    state["messages"] = list(state["messages"]) + [user_message, response]
     
     return state
 
-def should_exit(state: TravelState):
-    last_message = state.get("last_message")
-    if last_message and "exit" in last_message.content.lower():
-        return "exit"
-    else:
-        return "continue"
+def Get_Flight_Node(state: TravelState) -> TravelState:
+    last_message = state["messages"][-1]
+    if hasattr(last_message, "tool_calls") and last_message.tool_calls:
+        for tool_call in last_message.tool_calls:
+            tool = next(t for t in tools if t.name == tool_call["name"])
+            tool_msg = tool.invoke(tool_call)
+            print(f"Tool invoked: {tool_msg}")
+            state["messages"].append(tool_msg)
+    return state
+
+def get_last_human_message(state: TravelState) -> HumanMessage | None:
+    """Get the last human message from the state."""
+    for message in reversed(state["messages"]):
+        if isinstance(message, HumanMessage):
+            return message
+    return None
+# Check if user wants to exit
+def should_exit(state: TravelState) -> bool:
+    last_human = get_last_human_message(state)
+    if last_human and "exit" in last_human.content.lower():
+        return True
+    return False
     
-def use_get_flights_tool(state: TravelState):
-    messages = state.get("messages")
-    if messages:
-        last_message = messages[-1]
-        if last_message.tool_calls:
-            return "use_tool"
-        else:
-            return "continue"
+def routing_function(state: TravelState):
+    if should_exit(state):
+        return END
+    last_message = state["messages"][-1]
+    if hasattr(last_message, "tool_calls") and last_message.tool_calls:
+        return "use_tool"
+    else:
+        return "back_to_planner"

@@ -5,30 +5,22 @@ from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 import sys
 sys.path.append("D:/travel_assistant_ai/app")
 from langgraph_flow.state import TravelState
-from agents.mood_recommender import Planner_Agent, should_exit, get_flights, use_get_flights_tool
+from agents.mood_recommender import Planner_Agent, should_exit, routing_function, Get_Flight_Node
 
 graph = StateGraph(TravelState)
 
 graph.add_node("planner",Planner_Agent)
-graph.add_node("flight_tool", ToolNode(tools=[get_flights]))
+graph.add_node("flight_tool", Get_Flight_Node)
 
 graph.add_edge(START, "planner")
 
 graph.add_conditional_edges(
     "planner",
-    use_get_flights_tool,
+    routing_function,
     {
         "use_tool": "flight_tool",
-        "continue": "planner"
-    }
-)
-
-graph.add_conditional_edges(
-    "planner",
-    should_exit,
-    {
-        "exit": END,
-        "continue": "planner"
+        "back_to_planner": "planner",
+        END: END,
     }
 )
 
@@ -36,10 +28,15 @@ graph.add_edge("flight_tool", "planner")
 
 app = graph.compile()
 
-input = {"messages": [], "last_message": None}
+# Save Mermaid PNG to a file
+png_bytes = app.get_graph().draw_mermaid_png()
+with open("graph.png", "wb") as f:
+    f.write(png_bytes)
+
+input = {"messages": []}
 output = app.invoke(input)
-for message in output["messages"]:
-    if isinstance(message, HumanMessage):
-        print(f"👤 USER: {message.content}")
-    elif isinstance(message, AIMessage):
-        print(f"🤖 BOT: {message.content}")
+# for message in output["messages"]:
+#     if isinstance(message, HumanMessage):
+#         print(f"👤 USER: {message.content}")
+#     elif isinstance(message, AIMessage):
+#         print(f"🤖 BOT: {message.content}")
