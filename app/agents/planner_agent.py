@@ -126,7 +126,7 @@ def extract_destination(message: Sequence[BaseMessage]) -> TravelLocations:
         print(f"Failed to parse model output: {e}")
         # Return empty or default values on failure
         travel_locations = TravelLocations(origin=None, destination=None)
-
+    print(f"Extracted travel locations: {travel_locations}")
     return travel_locations
 
 tools = [get_flights]
@@ -144,13 +144,21 @@ def Planner_Agent(state: TravelState) -> TravelState:
     )
 
     if not state["messages"]:
+        #user did not send any input
         user_input = input("I'm ready to help you with your travel plans, whats going on your mind?: \n")
         user_message = HumanMessage(content=user_input)
 
     else:
-        user_input = input("\nTell me more about your travel plans: ")
-        print(f"\n👤 USER: {user_input}")
-        user_message = HumanMessage(content=user_input)
+        if len(state["messages"]) == 1:
+            #It is the first message and is the human message
+            # user_input = state["messages"][0].content
+            print(f"\n👤 USER: {state['messages'][0].content}")
+            # user_message = HumanMessage(content=user_input)
+            user_message = state["messages"][0]
+        else:
+            user_input = input("\nTell me more about your travel plans: ")
+            print(f"\n👤 USER: {user_input}")
+            user_message = HumanMessage(content=user_input)
 
     # state["last_message"] = user_message
     
