@@ -5,7 +5,7 @@ from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 import sys
 sys.path.append("D:/travel_assistant_ai/app")
 from langgraph_flow.state import TravelState
-from agents.mood_recommender import Planner_Agent, should_exit, routing_function, Get_Flight_Node
+from agents.planner_agent import Planner_Agent, should_exit, routing_function, Get_Flight_Node
 
 graph = StateGraph(TravelState)
 
@@ -26,15 +26,15 @@ graph.add_conditional_edges(
 
 graph.add_edge("flight_tool", "planner")
 
-app = graph.compile()
+app_planner = graph.compile()
 
 # Save Mermaid PNG to a file
-png_bytes = app.get_graph().draw_mermaid_png()
+png_bytes = app_planner.get_graph().draw_mermaid_png()
 with open("graph.png", "wb") as f:
     f.write(png_bytes)
 
 input = {"messages": []}
-output = app.invoke(input)
+output = app_planner.invoke(input)
 # for message in output["messages"]:
 #     if isinstance(message, HumanMessage):
 #         print(f"👤 USER: {message.content}")

@@ -2,3 +2,4 @@ python-dotenv
 langchain-openai
 langchain-google-genai
 langgraph
+fpdf
