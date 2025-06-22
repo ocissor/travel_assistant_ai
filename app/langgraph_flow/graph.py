@@ -33,8 +33,8 @@ png_bytes = app_planner.get_graph().draw_mermaid_png()
 with open("graph.png", "wb") as f:
     f.write(png_bytes)
 
-input = {"messages": ["Hi i am planning to visit beaches in india, can you help me with that?"]}
-output = app_planner.invoke(input)
+# input = {"messages": ["Hi i am planning to visit beaches in india, can you help me with that?"]}
+# output = app_planner.invoke(input)
 # for message in output["messages"]:
 #     if isinstance(message, HumanMessage):
 #         print(f"👤 USER: {message.content}")

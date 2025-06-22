@@ -193,3 +193,5 @@ cython_debug/
 .cursorignore
 .cursorindexingignore
 Things_to_learn.txt
+basic_exp.py
+check_api.py
