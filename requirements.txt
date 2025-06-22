@@ -3,3 +3,4 @@ langchain-openai
 langchain-google-genai
 langgraph
 fpdf
+pymongo

@@ -6,6 +6,7 @@ import sys
 sys.path.append("D:/travel_assistant_ai/app")
 from langgraph_flow.state import TravelState
 from agents.planner_agent import Planner_Agent, should_exit, routing_function, Get_Flight_Node
+from langgraph.checkpoint.memory import InMemorySaver
 
 graph = StateGraph(TravelState)
 
@@ -26,7 +27,8 @@ graph.add_conditional_edges(
 
 graph.add_edge("flight_tool", "planner")
 
-app_planner = graph.compile()
+checkpointer = InMemorySaver()
+app_planner = graph.compile(checkpointer=checkpointer)
 
 # Save Mermaid PNG to a file
 png_bytes = app_planner.get_graph().draw_mermaid_png()
