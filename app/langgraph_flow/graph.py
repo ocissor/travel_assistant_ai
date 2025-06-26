@@ -7,6 +7,7 @@ sys.path.append("D:/travel_assistant_ai/app")
 from langgraph_flow.state import TravelState
 from agents.planner_agent import Planner_Agent, should_exit, routing_function, Get_Flight_Node
 from langgraph.checkpoint.memory import InMemorySaver
+from langgraph.types import Command
 
 graph = StateGraph(TravelState)
 
@@ -35,6 +36,17 @@ png_bytes = app_planner.get_graph().draw_mermaid_png()
 with open("graph.png", "wb") as f:
     f.write(png_bytes)
 
+# config = {"configurable": {"thread_id": "1"}}
+# input = {"messages": ["Hi i am planning to visit beaches in india, can you help me with that?"]}
+# # for step in app_planner.stream(input, config=config):
+# #     print(step)
+# output = app_planner.invoke(input,config=config)
+# print(output['__interrupt__'])
+# resume_command = Command(resume="Tell me more about goa")
+# result = app_planner.invoke(resume_command, config=config)
+# print("RESULT AFTER INTERRUPT \n")
+# print('\n')
+# print(result)
 # input = {"messages": ["Hi i am planning to visit beaches in india, can you help me with that?"]}
 # output = app_planner.invoke(input)
 # for message in output["messages"]:
@@ -42,3 +54,5 @@ with open("graph.png", "wb") as f:
 #         print(f"👤 USER: {message.content}")
 #     elif isinstance(message, AIMessage):
 #         print(f"🤖 BOT: {message.content}")
+
+

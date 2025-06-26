@@ -1,6 +1,6 @@
 from langchain_core.tools import tool
 from langchain_google_genai import ChatGoogleGenerativeAI
-from langchain_core.messages import SystemMessage, HumanMessage, ToolMessage
+from langchain_core.messages import SystemMessage, HumanMessage, ToolMessage, AIMessage
 from typing import List
 import sys
 sys.path.append("D:/travel_assistant_ai/app")
@@ -9,11 +9,29 @@ from langgraph.graph import END
 import requests
 from typing import Sequence
 from langchain_core.messages import BaseMessage
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationError
 from langchain_core.output_parsers import PydanticOutputParser
 import os
+from typing import Optional
+import json
 from dotenv import load_dotenv
+from langgraph.types import interrupt
 load_dotenv()
+
+# hotel_amenities = [
+#     "SWIMMING_POOL", "SPA", "FITNESS_CENTER", "AIR_CONDITIONING", "RESTAURANT",
+#     "PARKING", "PETS_ALLOWED", "AIRPORT_SHUTTLE", "BUSINESS_CENTER",
+#     "DISABLED_FACILITIES", "WIFI", "MEETING_ROOMS", "NO_KID_ALLOWED", "TENNIS",
+#     "GOLF", "KITCHEN", "ANIMAL_WATCHING", "BABY-SITTING", "BEACH", "CASINO",
+#     "JACUZZI", "SAUNA", "SOLARIUM", "MASSAGE", "VALET_PARKING",
+#     "BAR or LOUNGE", "KIDS_WELCOME", "NO_PORN_FILMS", "MINIBAR",
+#     "TELEVISION", "WI-FI_IN_ROOM", "ROOM_SERVICE", "GUARDED_PARKG",
+#     "SERV_SPEC_MENU"
+# ]
+hotel_amenities = [
+    "SWIMMING_POOL", "SPA", "FITNESS_CENTER"
+]
+
 
 def get_iata_codes(access_token:str, city: str):
     """Fetch IATA codes for a given city using the Amadeus API."""
@@ -74,7 +92,7 @@ def get_flights(origin:str, destination:str, max_price: int = 200):
     params = {
         "originLocationCode": origin_code,
         "destinationLocationCode": destination_code,
-        "departureDate": "2025-06-20",
+        "departureDate": "2025-07-20",
         "adults": 1,
         "max": 1
     }
@@ -129,17 +147,105 @@ def extract_destination(message: Sequence[BaseMessage]) -> TravelLocations:
     print(f"Extracted travel locations: {travel_locations}")
     return travel_locations
 
-tools = [get_flights]
+class GetHotelsListArgs(BaseModel):
+    city: str = Field(...,description="City to search hotels in")
+    radius:Optional[int] = Field(10, description="radius to search the hotels in")
+    radius_unit: Optional[str] = Field("KM", description = "Unit to measure the radius")
+    amenities:Optional[List[str]] = Field(["POOL","GYM","PARKING"], description="list of amenities available in the hotel")
+    ratings: Optional[int] = Field(4, description="Minimum rating for the hotel")
+
+def prompt_update_defaults(state, args: GetHotelsListArgs) -> GetHotelsListArgs:
+    # Here you would integrate with your conversation system instead of input()
+    user_input = input(
+        f"Current hotel search parameters:\n"
+        f"Radius: {args.radius} {args.radius_unit}\n"
+        f"Amenities: {', '.join(args.amenities)}\n"
+        f"Ratings: {args.ratings}\n"
+        "Would you like to update any of these? (yes/no): "
+    ).strip().lower()
+
+    if user_input in ("no", "n"):
+        return args
+
+    if user_input in ("yes", "y"):
+        radius = input(f"Enter new radius (current: {args.radius}): ").strip()
+        if radius.isdigit():
+            args.radius = int(radius)
+
+        radius_unit = input(f"Enter radius unit (KM/MI) (current: {args.radius_unit}): ").strip().upper()
+        if radius_unit in ("KM", "MI"):
+            args.radius_unit = radius_unit
+
+        amenities = input(f"Enter amenities separated by commas (current: {', '.join(args.amenities)}): ").strip()
+        if amenities:
+            args.amenities = [a.strip().upper() for a in amenities.split(",")]
+
+        ratings = input(f"Enter minimum rating (1-5) (current: {args.ratings}): ").strip()
+        if ratings.isdigit() and 1 <= int(ratings) <= 5:
+            args.ratings = int(ratings)
+
+        return args
+
+    return args
+
+
+@tool(args_schema=GetHotelsListArgs)
+def get_hotels_list(
+    city: str,
+    radius: int = 10,
+    radius_unit: str = "KM",
+    amenities: List[str] = ["POOL", "GYM", "PARKING"],
+    ratings: int = 4,
+):
+    """Fetch a list of hotels based on the city, radius, amenities, and ratings."""
+    # Your existing API call logic here
+    url = "https://test.api.amadeus.com/v1/reference-data/locations/hotels/by-city"
+    access_token = get_amadeus_access_token(os.getenv("AMADEUS_API_KEY"), os.getenv("AMADEUS_SECRET_KEY"))
+    headers = {"Authorization": f"Bearer {access_token}"}
+    params = {
+        "cityCode": get_iata_codes(access_token, city),
+        "radius": radius,
+        "radiusUnit": radius_unit,
+        "amenities": amenities,
+        "ratings": ratings,
+    }
+    response = requests.get(url, headers=headers, params=params)
+    if response.status_code == 200:
+        return response.json().get("data", [])
+    else:
+        return f"Error fetching hotels: {response.status_code} {response.text}"
+
+
+def handle_get_hotels_tool_call(tool_call, state: TravelState):
+    try:
+        # Parse and validate args with Pydantic
+        args = GetHotelsListArgs(**tool_call["args"])
+
+        # Prompt user to update defaults if desired
+        args = prompt_update_defaults(state, args)
+
+        # Invoke the tool with updated args
+        result = get_hotels_list.invoke(args.model_dump())
+        return result
+
+    except ValidationError as e:
+        missing_fields = [err['loc'][[0]] for err in e.errors() if err['type'] == 'value_error.missing']
+        if missing_fields:
+            return f"Please provide the following information to search hotels: {', '.join(missing_fields)}"
+        else:
+            return f"Invalid input: {e}"
+
+tools = [get_flights,get_hotels_list]
 model = ChatGoogleGenerativeAI(model="gemini-2.0-flash-001",api_key=os.getenv("GEMINI_API_KEY")).bind_tools(tools)
 
 def Planner_Agent(state: TravelState) -> TravelState:
     """Planner Agent to recommend travel destinations based on mood."""
     # Initialize the Google Generative AI chat model
+    
     system_prompt = SystemMessage(
         content=(
             "You are a travel planner agent. You can recommend travel destinations based on the user's conversation. "\
-            "If the user asks for flight information, use the 'get_flights' tool to provide flight options. Also if the user has finalized their travel plans, "\
-            "use the 'extract_destination' tool to extract origin and destination from the conversation. "
+            "If the user asks for flight information, use the 'get_flights' tool to provide flight options. Also if the user has finalized their travel plans, "
         )
     )
 
@@ -151,24 +257,27 @@ def Planner_Agent(state: TravelState) -> TravelState:
     else:
         if len(state["messages"]) == 1:
             #It is the first message and is the human message
-            # user_input = state["messages"][0].content
             print(f"\n👤 USER: {state['messages'][0].content}")
-            # user_message = HumanMessage(content=user_input)
             user_message = state["messages"][0]
+            
         else:
-            user_input = input("\nTell me more about your travel plans: ")
-            print(f"\n👤 USER: {user_input}")
+            #user_input = input("\nTell me more about your travel plans: ")
+            user_input = interrupt("Please enter your message:")
+            #user_input = state['messages'][-1].content
+            #print(f"\n👤 USER: {user_input}")
             user_message = HumanMessage(content=user_input)
 
-    # state["last_message"] = user_message
     
     all_messages = [system_prompt] + list(state["messages"]) + [user_message]
-
+    all_messages = [msg for msg in all_messages if msg.content and msg.content.strip() != ""]
     response = model.invoke(all_messages)
     print(response.tool_calls)
-    print(f"🤖 BOT: {response.content}")
+    #print(f"🤖 BOT: {response.content}")
 
-    state["messages"] = list(state["messages"]) + [user_message, response]
+    if len(state["messages"]) == 1:
+        state['messages'] = list(state["messages"]) + [response]
+    else: 
+        state["messages"] = list(state["messages"]) + [user_message, response]
     
     print(f"origin: {state.get('origin')}, destination: {state.get('destination')}")
     return state
@@ -184,14 +293,24 @@ def Get_Flight_Node(state: TravelState) -> TravelState:
             destination = tool_args.get("destination")
             max_price = tool_args.get("max_price", 200)
             flight_info = get_flights.invoke({"origin": origin, "destination": destination, "max_price": max_price})
+            if isinstance(last_message, AIMessage):
+                last_message.content = f"flight from {origin} to {destination} ...." + json.dumps(flight_info)
             tool_msg = ToolMessage(
-                content=flight_info,
+                content="Flight details fetched!!",
                 name=tool_name,
                 tool_call_id=tool_call["id"],
             )
             state["messages"].append(tool_msg)
             state["origin"] = origin
             state["destination"] = destination
+        if tool_name == "get_hotels_list":
+            hotel_info = handle_get_hotels_tool_call(tool_call, state)
+            tool_msg = ToolMessage(
+                content=hotel_info,
+                name=tool_name,
+                tool_call_id=tool_call["id"],
+            )
+            state["messages"].append(tool_msg)
 
     return state
 
