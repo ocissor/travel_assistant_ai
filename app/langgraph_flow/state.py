@@ -7,7 +7,6 @@ class TravelState(TypedDict):
     messages : Annotated[Sequence[BaseMessage], add_messages]
     origin: Optional[str]
     destination: Optional[str]
-    
 
 class ItinearyState(TypedDict):
     origin : Optional[str]

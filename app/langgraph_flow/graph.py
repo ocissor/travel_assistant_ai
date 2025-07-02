@@ -21,12 +21,11 @@ graph.add_conditional_edges(
     routing_function,
     {
         "use_tool": "flight_tool",
-        "back_to_planner": "planner",
         END: END,
     }
 )
 
-graph.add_edge("flight_tool", "planner")
+graph.add_edge("flight_tool", END)
 
 checkpointer = InMemorySaver()
 app_planner = graph.compile(checkpointer=checkpointer)
@@ -36,7 +35,7 @@ png_bytes = app_planner.get_graph().draw_mermaid_png()
 with open("graph.png", "wb") as f:
     f.write(png_bytes)
 
-# config = {"configurable": {"thread_id": "1"}}
+config = {"configurable": {"thread_id": "1"}}
 # input = {"messages": ["Hi i am planning to visit beaches in india, can you help me with that?"]}
 # # for step in app_planner.stream(input, config=config):
 # #     print(step)
@@ -47,8 +46,9 @@ with open("graph.png", "wb") as f:
 # print("RESULT AFTER INTERRUPT \n")
 # print('\n')
 # print(result)
-# input = {"messages": ["Hi i am planning to visit beaches in india, can you help me with that?"]}
-# output = app_planner.invoke(input)
+#input = {"messages": ["Get me hotels in Paris!"]}
+#output = app_planner.invoke(input,config=config)
+#print(output)
 # for message in output["messages"]:
 #     if isinstance(message, HumanMessage):
 #         print(f"👤 USER: {message.content}")
