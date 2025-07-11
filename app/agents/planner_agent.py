@@ -282,31 +282,33 @@ def Planner_Agent(state: TravelState) -> TravelState:
 def Get_Flight_Node(state: TravelState) -> TravelState:
     last_message = state["messages"][-1]
     if hasattr(last_message, "tool_calls") and last_message.tool_calls:
-        tool_call = last_message.tool_calls[0]
-        tool_name = tool_call["name"]
-        tool_args = tool_call["args"]
-        if tool_name == "get_flights":
-            origin = tool_args.get("origin")
-            destination = tool_args.get("destination")
-            max_price = tool_args.get("max_price", 200)
-            flight_info = get_flights.invoke({"origin": origin, "destination": destination, "max_price": max_price})
-            #print(f"flight info {flight_info['data'][0]}")
-            tool_msg = ToolMessage(
-                content=json.dumps(flight_info),
-                name=tool_name,
-                tool_call_id=tool_call["id"],
-            )
-            state["messages"].append(tool_msg)
-            state["origin"] = origin
-            state["destination"] = destination
-        if tool_name == "get_hotels_list":
-            hotel_info = handle_get_hotels_tool_call(tool_call, state)
-            tool_msg = ToolMessage(
-                content=json.dumps(hotel_info),
-                name=tool_name,
-                tool_call_id=tool_call["id"],
-            )
-            state["messages"].append(tool_msg)
+        for i in range(len(last_message.tool_calls)):
+            
+            tool_call = last_message.tool_calls[i]
+            tool_name = tool_call["name"]
+            tool_args = tool_call["args"]
+            if tool_name == "get_flights":
+                origin = tool_args.get("origin")
+                destination = tool_args.get("destination")
+                max_price = tool_args.get("max_price", 200)
+                flight_info = get_flights.invoke({"origin": origin, "destination": destination, "max_price": max_price})
+                #print(f"flight info {flight_info['data'][0]}")
+                tool_msg = ToolMessage(
+                    content=json.dumps(flight_info),
+                    name=tool_name,
+                    tool_call_id=tool_call["id"],
+                )
+                state["messages"].append(tool_msg)
+                state["origin"] = origin
+                state["destination"] = destination
+            if tool_name == "get_hotels_list":
+                hotel_info = handle_get_hotels_tool_call(tool_call, state)
+                tool_msg = ToolMessage(
+                    content=json.dumps(hotel_info),
+                    name=tool_name,
+                    tool_call_id=tool_call["id"],
+                )
+                state["messages"].append(tool_msg)
 
     return state
 

@@ -6,6 +6,8 @@ import sys
 sys.path.append("D:/travel_assistant_ai/app")
 from langgraph_flow.state import ItinearyState
 from agents.itineary_builder_agent import Itineary_builder_Agent, routing_function, ItinerayToolNode
+from langgraph.checkpoint.memory import InMemorySaver
+
 
 graph = StateGraph(ItinearyState)
 
@@ -19,20 +21,22 @@ graph.add_conditional_edges(
     routing_function,
     {
         "use_tool": "Itineary_tool",
-        "back_to_itineary_builder": "Itineary_planner",
-        END: END,
+        END: END
     }
 )
 
-graph.add_edge("Itineary_tool", "Itineary_planner")
+graph.add_edge("Itineary_tool", END)
 
-app_itinerary = graph.compile()
+checkpointer = InMemorySaver()
+app_itinerary = graph.compile(checkpointer=checkpointer)
 
 # Save Mermaid PNG to a file
 png_bytes = app_itinerary.get_graph().draw_mermaid_png()
 with open("graph.png", "wb") as f:
     f.write(png_bytes)
 
+
+config = {"configurable": {"thread_id": "1"}}
 # input = {"messages": []}
 # output = app_itinerary.invoke(input)
 

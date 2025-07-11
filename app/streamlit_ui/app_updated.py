@@ -5,9 +5,17 @@ import sys
 import json
 import pickle
 from datetime import datetime
-
+from dotenv import load_dotenv
+from langchain_google_genai import ChatGoogleGenerativeAI
+import os
+from langchain_core.messages import SystemMessage,HumanMessage, AIMessage
+import time
 sys.path.append("D:/travel_assistant_ai/app")
 from database import collection  # Optional if you use MongoDB
+
+load_dotenv()
+
+model = ChatGoogleGenerativeAI(model="gemini-2.0-flash" ,api_key=os.getenv("GEMINI_API_KEY"), temperature = 0.3)
 
 API_URL = "http://127.0.0.1:8000/chat"
 
@@ -15,6 +23,115 @@ API_URL = "http://127.0.0.1:8000/chat"
 st.set_page_config(page_title="✈️ Travel Assistant")
 st.title("🌍 AI Travel Planner")
 st.markdown("Plan your dream trip with the help of AI agents.")
+
+
+# ----- Session State Initialization -----
+if "thread_id" not in st.session_state:
+    st.session_state.thread_id = str(uuid.uuid4())
+
+if "ui_messages" not in st.session_state:
+    st.session_state.ui_messages = []
+
+if "awaiting_interrupt" not in st.session_state:
+    st.session_state.awaiting_interrupt = False
+
+if "interrupt_prompt" not in st.session_state:
+    st.session_state.interrupt_prompt = ""
+
+if "conversation_history" not in st.session_state:
+    st.session_state.conversation_history = []
+
+if 'previous_convs' not in st.session_state:
+    st.session_state.previous_convs = []
+
+if 'thread_id_mapping' not in st.session_state:
+    st.session_state.thread_id_mapping = {} 
+
+if 'current_page' not in st.session_state:
+    st.session_state.current_page = "Chatbot"
+
+PAGES = {
+    "Chatbot":"Chatbot",
+    'Get clothing recommendations': "find clothes for your trip",
+    'Get Weather Info': 'Weather Info',
+    'Build Itinerary': 'Build Itinerary'
+}
+
+with st.sidebar:
+    for key in PAGES.keys():
+        if st.button(PAGES[key],use_container_width=True):
+            st.session_state.current_page = key
+
+page = st.session_state.current_page
+if page == 'Get clothing recommendations':
+    st.write("Get clothing recommendations")
+if page == 'Get Weather Info':
+    st.write("Weather page")  
+if page == 'Build Itinerary':
+    st.write("Build Itinerary")
+
+st.session_state.thread_id_mapping[st.session_state.thread_id] = {
+                        "ui_messages":st.session_state.ui_messages,
+                        "awaiting_interrupt": st.session_state.awaiting_interrupt,
+                        "interrupt_prompt": st.session_state.interrupt_prompt,
+                        "conversation_history":st.session_state.conversation_history
+                    } 
+
+
+st.sidebar.title("Previous Chats")
+
+if st.sidebar.button("new chat",use_container_width=True):
+    # Step 1: Read and use existing conversation history
+
+    messages = [msg for msg in st.session_state.conversation_history if msg.content and msg.content.strip() != ""]
+    
+    if len(messages) == 0:
+        # Step 2: Clear state AFTER using it
+        st.session_state.thread_id = str(uuid.uuid4())
+        st.session_state.ui_messages = []
+        st.session_state.awaiting_interrupt = False
+        st.session_state.interrupt_prompt = ""
+        st.session_state.conversation_history = []
+
+        # for prevs_msg in st.session_state.previous_convs:
+        #     st.sidebar.button(prevs_msg[0])
+
+    else:
+
+        system_prompt = SystemMessage(content="You are a helpful assistant specialized in summarizing conversations. "
+        "Your ONLY task is to generate a concise title for the given conversation history. "
+        "The title should be brief, and accurately reflect the main topic. "
+        "It must not be empty. Your response must contain ONLY the title, with no additional text, "
+        "preamble, conversational filler, or punctuation other than what is part of the title itself. "
+        "Do not number the title or include quotation marks around it.")
+
+        all_messages = [system_prompt] + [HumanMessage(content="Generate a title for this conversation.")] + messages 
+        
+        response = model.invoke(all_messages)
+        
+        if response.content == "":
+            if messages[0].content and messages[0].content.strip() != "":
+                response.content = messages[0].content
+        
+        # st.sidebar.button(response.content)
+        st.session_state.previous_convs.append((response.content,st.session_state.thread_id))
+        # Step 2: Clear state AFTER using it
+        st.session_state.thread_id = str(uuid.uuid4())
+        st.session_state.ui_messages = []
+        st.session_state.awaiting_interrupt = False
+        st.session_state.interrupt_prompt = ""
+        st.session_state.conversation_history = []
+
+
+if len(st.session_state.previous_convs) != 0:
+    for i, prevs_msg in enumerate(st.session_state.previous_convs):
+        if st.sidebar.button(prevs_msg[0],key=f"load_chat_{i}"):
+            thread_id = prevs_msg[1]
+            st.session_state.thread_id = thread_id
+            st.session_state.ui_messages = st.session_state.thread_id_mapping[thread_id]['ui_messages']
+            st.session_state.awaiting_interrupt = st.session_state.thread_id_mapping[thread_id]['awaiting_interrupt']
+            st.session_state.interrupt_prompt = st.session_state.thread_id_mapping[thread_id]['interrupt_prompt']
+            st.session_state.conversation_history = st.session_state.thread_id_mapping[thread_id]['conversation_history']
 
 def format_flight_offer(offer: dict) -> str:
     lines = []
@@ -107,21 +224,6 @@ def get_sorted_hotel_strings_by_distance(hotels):
 
     return hotel_strings
 
-
-# ----- Session State Initialization -----
-if "thread_id" not in st.session_state:
-    st.session_state.thread_id = str(uuid.uuid4())
-
-if "ui_messages" not in st.session_state:
-    st.session_state.ui_messages = []
-
-if "awaiting_interrupt" not in st.session_state:
-    st.session_state.awaiting_interrupt = False
-
-if "interrupt_prompt" not in st.session_state:
-    st.session_state.interrupt_prompt = ""
-
-
 # ----- Display Chat History -----
 for msg in st.session_state.ui_messages:
     role = "user" if msg["type"] == "human" else "assistant"
@@ -167,6 +269,7 @@ if st.session_state.awaiting_interrupt:
                             if msg.content and msg.content.strip()!="":
                                 st.chat_message("assistant").markdown(msg.content)
                                 st.session_state.ui_messages.append({"type": "ai", "content": msg.content})
+                                st.session_state.conversation_history.append(AIMessage(content = msg.content))
                                 break
                         elif msg.type == "tool" and msg.name == 'get_hotels_list':
                             if msg.content and msg.content.strip()!="":
@@ -176,6 +279,7 @@ if st.session_state.awaiting_interrupt:
                                 for hotel in hotels_list:
                                     st.chat_message('assistant').markdown(hotel)
                                     st.session_state.ui_messages.append({"type":"ai","content":hotel})
+                                    st.session_state.conversation_history.append(AIMessage(content = hotel))
                                 break
                         elif msg.type == 'tool' and msg.name == 'get_flights':
                             if msg.content and msg.content.strip()!="":
@@ -183,6 +287,7 @@ if st.session_state.awaiting_interrupt:
                                 for flight_data in flights_data:
                                     st.chat_message('assistant').markdown(flight_data)
                                     st.session_state.ui_messages.append({"type":"ai","content":flight_data})
+                                    st.session_state.conversation_history.append(AIMessage(content = flight_data))
                                 break
 
             except Exception as e:
@@ -198,6 +303,7 @@ if prompt := st.chat_input("Where do you want to go?"):
         # User message input
         st.chat_message("user").markdown(prompt)
         st.session_state.ui_messages.append({"type": "human", "content": prompt})
+        st.session_state.conversation_history.append(HumanMessage(content = prompt))
         payload = {
             "user_input": prompt,
             "thread_id": st.session_state.thread_id,
@@ -224,6 +330,7 @@ if prompt := st.chat_input("Where do you want to go?"):
                                 "type": "ai",
                                 "content": msg.content
                             })
+                            st.session_state.conversation_history.append(AIMessage(content = msg.content))
                             break
                     elif msg.type == "tool" and msg.name == 'get_hotels_list':
                             if msg.content and msg.content.strip()!="":
@@ -233,6 +340,7 @@ if prompt := st.chat_input("Where do you want to go?"):
                                 for hotel in hotels_list:
                                     st.chat_message('assistant').markdown(hotel)
                                     st.session_state.ui_messages.append({"type":"ai","content":hotel})
+                                    st.session_state.conversation_history.append(AIMessage(content = hotel))
                                 break
                     elif msg.type == 'tool' and msg.name == 'get_flights':
                             if msg.content and msg.content.strip()!="":
@@ -240,7 +348,10 @@ if prompt := st.chat_input("Where do you want to go?"):
                                 for flight_data in flights_data:
                                     st.chat_message('assistant').markdown(flight_data)
                                     st.session_state.ui_messages.append({"type":"ai","content":flight_data})
+                                    st.session_state.conversation_history.append(AIMessage(content = flight_data))
                                 break
 
         except Exception as e:
             st.error(f"Request failed: {e}")
+
+

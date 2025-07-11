@@ -86,7 +86,7 @@ def send_itineary_to_email(itineary_text: str, user_email: str):
     print(f"Sending itinerary to {user_email}...")
     return f"Itinerary sent to {user_email}"
 
-tools = [build_itineary, save_itineary_to_pdf, send_itineary_to_email]
+tools = [save_itineary_to_pdf, send_itineary_to_email]
 model = ChatGoogleGenerativeAI(model="gemini-2.0-flash-001",api_key=os.getenv("GEMINI_API_KEY")).bind_tools(tools)
 
 def Itineary_builder_Agent(state: ItinearyState) -> ItinearyState:
@@ -95,18 +95,35 @@ def Itineary_builder_Agent(state: ItinearyState) -> ItinearyState:
         content = "You are a travel itinerary builder agent. Your task is to create a detailed travel itinerary based on the user's preferences and requirements. " \
         "You will use the provided tools to gather necessary information and build the itinerary. You will also save the itinerary to a PDF file and send it to the user's email address if requested. "
     )
-    if not state['messages']:
-        #input_message = input("Please provide your travel details (origin, destination, dates, etc.) your email address : ")
-        input_message = f"I want to travel from {state['origin']} to {state['destination']} build my itineary"
-        user_message = HumanMessage(content=input_message)
-    else:
-        input_message = input("Please provide additional travel preferences or confirm the existing ones: ")
-        user_message = HumanMessage(content=input_message)
+
+    input_message = None
+
+    if state['itinerary_button_presses'] == 0:
+
+        if state["additional_info"] is not None:
+            input_message = HumanMessage(content=f"Please provide the itinerary details for travel from {state['origin']} to {state['destination']}. " \
+                f"the dates mentioned by user are from {state['start_date']} to {state['end_date']}, style of travel is {state['style']}, and the additional information is {state['additional_info']} " \
+                f"Make the itinerary as detaileds as possible.")
+        else:
+            input_message = HumanMessage(content=f"Please provide the itinerary details for travel from {state['origin']} to {state['destination']}. " \
+                f"the dates mentioned by user are from {state['start_date']} to {state['end_date']}, style of travel is {state['style']}. " \
+                f"Make the itinerary as detailed as possible.")
     
-    all_messages = [system_prompt] + list(state['messages']) + [user_message]
-    response = model.invoke(all_messages)
-    print(response.tool_calls)
-    state['messages'] = list(state['messages']) + [user_message, response]
+        all_messages = [system_prompt] + list(state['messages']) + [input_message]
+        all_messages = [msg for msg in all_messages if msg.content and msg.content.strip() != ""]  # Remove empty messages
+        response = model.invoke(all_messages)
+        state['itinerary_text'] = response.content
+        state['messages'] = list(state['messages']) + [input_message, response]
+    else:
+        input_message = HumanMessage(content=f"This is the current itinerary: {state['itinerary_text']}. " \
+            f"Please make the necessary changes based on the user's feedback: {state['feedback']}. ")
+    
+        all_messages = [system_prompt] + list(state['messages']) + [input_message]
+        all_messages = [msg for msg in all_messages if msg.content and msg.content.strip() != ""]
+        response = model.invoke(all_messages)
+        state['itinerary_text'] = response.content
+
+        state['messages'] = list(state['messages']) + [input_message, response]
 
     return state
 
@@ -114,68 +131,53 @@ def ItinerayToolNode(state: ItinearyState) -> ItinearyState:
     """Node to handle itinerary building and saving."""
     last_message = state['messages'][-1]
     if hasattr(last_message, "tool_calls") and last_message.tool_calls:
-        print(f" tool call info is : {last_message.tool_calls}")
-        tool_call = last_message.tool_calls[0]
-        tool_name = tool_call['name']
-        tool_args = tool_call['args']
+        for i in range(len(last_message.tool_calls)):
+        
+            tool_call = last_message.tool_calls[i]
+            tool_name = tool_call['name']
+            tool_args = tool_call['args']
 
-        if tool_name == "build_itineary":
-            origin = tool_args.get("origin")
-            destination = tool_args.get("destination")
-            itineary_text = build_itineary.invoke({"origin": origin, "destination": destination})
-            state['itineary_text'] = itineary_text
-            tool_msg = ToolMessage(
-                content=json.dumps(itineary_text),
-                name=tool_name,
-                tool_call_id=tool_call["id"],
-            )
-            state["messages"].append(tool_msg)
-            print(state['itineary_text'])
-            
-        elif tool_name == "save_itineary_to_pdf":
-            itineary_text = state.get('itineary_text', "")
-            pdf_path = tool_args.get("pdf_path", "itinerary.pdf")
-            tool_output = save_itineary_to_pdf.invoke({"itineary_text": itineary_text, "pdf_path": pdf_path})
-            state['pdf_path'] = pdf_path 
-            tool_msg = ToolMessage(
-                content=tool_output,
-                name=tool_name,
-                tool_call_id=tool_call["id"],
-            )
-            state["messages"].append(tool_msg)
+            if tool_name == "build_itineary":
+                origin = tool_args.get("origin")
+                destination = tool_args.get("destination")
+                itineary_text = build_itineary.invoke({"origin": origin, "destination": destination})
+                state['itineary_text'] = itineary_text
+                tool_msg = ToolMessage(
+                    content=json.dumps(itineary_text),
+                    name=tool_name,
+                    tool_call_id=tool_call["id"],
+                )
+                state["messages"].append(tool_msg)
+                print(state['itineary_text'])
+                
+            elif tool_name == "save_itineary_to_pdf":
+                itineary_text = state.get('itineary_text', "")
+                pdf_path = tool_args.get("pdf_path", "itinerary.pdf")
+                tool_output = save_itineary_to_pdf.invoke({"itineary_text": itineary_text, "pdf_path": pdf_path})
+                state['pdf_path'] = pdf_path 
+                tool_msg = ToolMessage(
+                    content=tool_output,
+                    name=tool_name,
+                    tool_call_id=tool_call["id"],
+                )
+                state["messages"].append(tool_msg)
 
-        elif tool_name == "send_itineary_to_email":
-            itineary_text = state.get('itineary_text', "")
-            user_email = tool_args.get("user_email")
-            send_itineary_to_email.invoke({itineary_text: itineary_text, "user_email": user_email})
-            tool_msg = ToolMessage(
-                content=f"Itinerary sent to {user_email}",
-                name=tool_name,
-                tool_call_id=tool_call["id"],
-            )
-            state["messages"].append(tool_msg)
+            elif tool_name == "send_itineary_to_email":
+                itineary_text = state.get('itineary_text', "")
+                user_email = tool_args.get("user_email")
+                send_itineary_to_email.invoke({itineary_text: itineary_text, "user_email": user_email})
+                tool_msg = ToolMessage(
+                    content=f"Itinerary sent to {user_email}",
+                    name=tool_name,
+                    tool_call_id=tool_call["id"],
+                )
+                state["messages"].append(tool_msg)
 
     return state
 
-def get_last_human_message(state: ItinearyState) -> HumanMessage:
-    """Retrieve the last human message from the state."""
-    for message in reversed(state['messages']):
-        if isinstance(message, HumanMessage):
-            return message
-    return None
-
-def should_exit(state: ItinearyState) -> bool:
-    last_human_message = get_last_human_message(state)
-    if last_human_message and "exit" in last_human_message.content.lower():
-        return True
-    return False
-
 def routing_function(state: ItinearyState):
     """Determine the next step based on the last message."""
-    if should_exit(state):
-        return END
     last_message = state['messages'][-1]
     if hasattr(last_message, "tool_calls") and last_message.tool_calls:
-        return "use_tool"
-    else:
-        return "back_to_itineary_builder"
+        return "Itineary_tool"
+    return END
